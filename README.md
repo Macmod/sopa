@@ -34,7 +34,7 @@ Sopa implements the ADWS protocol stack ([MS-NNS](https://learn.microsoft.com/en
 - **Service metadata**
   - `mex` — fetches ADWS service endpoint metadata via an unauthenticated WS-MetadataExchange request
 
-## Install
+# Install
 
 ```bash
 $ go install github.com/Macmod/sopa/cmd/sopa@latest
@@ -109,7 +109,7 @@ Notes:
 - `hex` values are converted to `xsd:base64Binary`.
 - To set an empty string explicitly, use `value: ""`.
 
-## Authentication
+# Authentication
 
 `sopa` supports the following credential modes:
 
@@ -134,11 +134,34 @@ $ sopa <action> --dc <DC_FQDN> -u <USER> --pfx <CERT.pfx> --pfx-password <PFX_PA
 $ sopa <action> --dc <DC_FQDN> -u <USER> --cert <CERT.pem> --key <KEY.pem> -d <DOMAIN> ...
 ```
 
-## Contributing
+# Contributing
 
 Contributions are welcome by [opening an issue](https://github.com/Macmod/sopa/issues) or [submitting a pull request](https://github.com/Macmod/sopa/pulls).
 
-## License
+# Other ADWS tools
+
+The idea to write this tool came from a wave of ADWS-focused tools, mainly for evasion purposes. In theory all that can be done with these can also be done with `sopa`, but if you want to perform more complex/specific actions, check them out too:
+
+* [wh0amitz/SharpADWS](https://github.com/wh0amitz/SharpADWS)
+* [logangoins/SOAPy](https://github.com/logangoins/SOAPy)
+* [FalconForceTeam/SOAPHound](https://github.com/FalconForceTeam/SOAPHound)
+* [mverschu/adwsdomaindump](https://github.com/mverschu/adwsdomaindump)
+
+# Acknowledgements
+
+* Big thanks to [oiweiwei](https://github.com/oiweiwei) for [go-msrpc](https://github.com/oiweiwei/go-msrpc), as his `ssp` package implementated the authentication flow with GSSAPI seamlessly.
+
+# References
+
+- [MS-NNS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nns) - .NET NegotiateStream Protocol
+- [MS-NMF](https://learn.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf) - .NET Message Framing Protocol
+- [MS-ADDM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-addm) - Active Directory Web Services: Data Model and Common Elements
+- [MS-WSDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsds) - WS-Enumeration: Directory Services Protocol Extensions
+- [MS-WSTIM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-wstim) - WS-Transfer: Identity Management Operations for Directory Access Extensions
+- [MS-ADCAP](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-adcap) - Active Directory Web Services Custom Action Protocol
+- [MS-ADTS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts) - Active Directory Technical Specification
+
+# License
 
 The MIT License (MIT)
 
@@ -150,20 +173,3 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## Other ADWS tools
-
-The idea to write this tool came from a wave of ADWS-focused tools, mainly for evasion purposes. In theory all that can be done with these can also be done with `sopa`, but if you want to perform more complex/specific actions, check them out too:
-
-* [wh0amitz/SharpADWS](https://github.com/wh0amitz/SharpADWS)
-* [logangoins/SOAPy](https://github.com/logangoins/SOAPy)
-* [FalconForceTeam/SOAPHound](https://github.com/FalconForceTeam/SOAPHound)
-* [mverschu/adwsdomaindump](https://github.com/mverschu/adwsdomaindump)
-
-## References
-
-- [MS-NNS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nns) - .NET NegotiateStream Protocol
-- [MS-NMF](https://learn.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf) - .NET Message Framing Protocol
-- [MS-WSDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsds) - WS-Enumeration: Directory Services Protocol Extensions
-- [MS-ADDM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-addm) - Active Directory Web Services: Data Model and Common Elements
-- [MS-ADCAP](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-adcap) - Active Directory Web Services Custom Action Protocol
-- [MS-ADTS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts) - Active Directory Technical Specification
