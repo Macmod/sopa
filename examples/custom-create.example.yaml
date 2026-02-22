@@ -1,0 +1,37 @@
+# Example template for: sopa create custom --template examples/custom-create.example.yaml
+#
+# This creates a container-like object. Adjust parentDN/rdn for your directory.
+#
+# Notes:
+# - attribute "name" can be a short name (e.g. "cn") or fully-qualified (e.g. "addata:cn")
+# - "type" supports: string|int|bool|base64|hex (or an explicit xsd:* type)
+# - use either "value" (single) or "values" (multi)
+# - do NOT include ad:relativeDistinguishedName or ad:container-hierarchy-parent (auto-set)
+#
+# parentDN: the container DN
+# rdn: relative DN for the new object
+parentDN: "DC=CRETA,DC=LOCAL"
+rdn: "CN=SOPA-CUSTOM-EXAMPLE"
+
+attributes:
+  - name: objectClass
+    type: string
+    value: container
+
+  - name: cn
+    type: string
+    value: SOPA-CUSTOM-EXAMPLE
+
+  - name: description
+    type: string
+    value: "Created via sopa create custom"
+
+  # Example multi-valued attribute (if you use one)
+  # - name: someMulti
+  #   type: string
+  #   values: ["one", "two"]
+
+  # Example binary attribute using hex -> converted to xsd:base64Binary
+  # - name: someBinary
+  #   type: hex
+  #   value: "deadbeef"
