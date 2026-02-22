@@ -92,22 +92,14 @@ type Config struct {
 }
 
 // NewWSClient creates a new ADWS client with the given configuration.
+// Credential fields (Username, Password, etc.) are validated at Connect() time,
+// so callers that only intend to call GetMetadata() may omit them.
 func NewWSClient(cfg Config) (*WSClient, error) {
 	if cfg.DCFQDN == "" {
 		return nil, fmt.Errorf("DCFQDN is required")
 	}
-	if cfg.Username == "" {
-		return nil, fmt.Errorf("Username is required")
-	}
-	hasCert := cfg.PFXFile != "" || cfg.CertFile != ""
-	if cfg.Password == "" && cfg.NTHash == "" && cfg.AESKey == "" && cfg.CCachePath == "" && !hasCert {
-		return nil, fmt.Errorf("one of Password, NTHash, AESKey, CCachePath, PFXFile, or CertFile+KeyFile is required")
-	}
 	if cfg.CertFile != "" && cfg.KeyFile == "" {
 		return nil, fmt.Errorf("KeyFile is required when CertFile is set")
-	}
-	if cfg.Domain == "" {
-		return nil, fmt.Errorf("Domain is required")
 	}
 
 	if cfg.Port == 0 {
@@ -123,6 +115,7 @@ func NewWSClient(cfg Config) (*WSClient, error) {
 		cfg.Timeout = defaultConnectTimeout
 	}
 
+	hasCert := cfg.PFXFile != "" || cfg.CertFile != ""
 	return &WSClient{
 		dcFQDN:      cfg.DCFQDN,
 		port:        cfg.Port,
@@ -147,6 +140,18 @@ func NewWSClient(cfg Config) (*WSClient, error) {
 func (c *WSClient) Connect() error {
 	if c.connected {
 		return fmt.Errorf("already connected")
+	}
+
+	// Validate credentials here — they are only needed for authenticated connections.
+	if c.username == "" {
+		return fmt.Errorf("Username is required")
+	}
+	if c.domain == "" {
+		return fmt.Errorf("Domain is required")
+	}
+	hasCert := c.pfxFile != "" || c.certFile != ""
+	if c.password == "" && c.ntHash == "" && c.aesKey == "" && c.ccache == "" && !hasCert {
+		return fmt.Errorf("one of Password, NTHash, AESKey, CCachePath, PFXFile, or CertFile+KeyFile is required")
 	}
 
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
