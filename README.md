@@ -34,13 +34,13 @@ Sopa implements the ADWS protocol stack ([MS-NNS](https://learn.microsoft.com/en
 - **Service metadata**
   - `mex` — fetches ADWS service endpoint metadata via an unauthenticated WS-MetadataExchange request
 
-# Install
+# Installation
 
 ```bash
 $ go install github.com/Macmod/sopa/cmd/sopa@latest
 ```
 
-## Usage
+# Usage
 
 ```bash
 # Auth flags (-u, -p, -d, -k, -H, -c, ...) are omitted for brevity — see Authentication section.
