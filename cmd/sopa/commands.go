@@ -22,7 +22,7 @@ func newQueryCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			attrs := splitCSV(attrsCSV)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
 				items, err := client.Query(common.baseDN, filter, attrs, scope)
@@ -60,7 +60,7 @@ func newGetCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			if dn == "" {
 				return fmt.Errorf("--dn is required")
@@ -95,7 +95,7 @@ func newDeleteCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			if dn == "" {
 				return fmt.Errorf("--dn is required")
@@ -104,7 +104,11 @@ func newDeleteCmd(common *commonOptions) *cobra.Command {
 				if err := client.WSTransferDelete(dn); err != nil {
 					return err
 				}
-				p.Donef("Deleted %s\n", dn)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "delete", "dn": dn})
+				} else {
+					p.Donef("Deleted %s\n", dn)
+				}
 				return nil
 			})
 		},
@@ -143,7 +147,7 @@ func newSetPasswordCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			partitionDN = strings.TrimSpace(partitionDN)
 			if dn == "" {
@@ -159,7 +163,11 @@ func newSetPasswordCmd(common *commonOptions) *cobra.Command {
 				if err := client.ADCAPSetPassword(dn, partitionDN, newPassword); err != nil {
 					return err
 				}
-				p.Donef("Password set for %s\n", dn)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "set-password", "dn": dn})
+				} else {
+					p.Donef("Password set for %s\n", dn)
+				}
 				return nil
 			})
 		},
@@ -185,7 +193,7 @@ func newChangePasswordCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			partitionDN = strings.TrimSpace(partitionDN)
 			if dn == "" {
@@ -204,7 +212,11 @@ func newChangePasswordCmd(common *commonOptions) *cobra.Command {
 				if err := client.ADCAPChangePassword(dn, partitionDN, oldPassword, newPassword); err != nil {
 					return err
 				}
-				p.Donef("Password changed for %s\n", dn)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "change-password", "dn": dn})
+				} else {
+					p.Donef("Password changed for %s\n", dn)
+				}
 				return nil
 			})
 		},
@@ -230,7 +242,7 @@ func newTranslateNameCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			formatOffered = strings.TrimSpace(formatOffered)
 			formatDesired = strings.TrimSpace(formatDesired)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
@@ -244,9 +256,17 @@ func newTranslateNameCmd(common *commonOptions) *cobra.Command {
 				for i := 0; i < len(results) && i < len(args); i++ {
 					r := results[i]
 					if r.Result == 0 {
-						p.Donef("%s -> %s\n", args[i], r.Name)
+						if common.jsonOutput {
+							p.PrintJSON(map[string]any{"status": "ok", "input": args[i], "output": strings.TrimSpace(r.Name), "code": 0})
+						} else {
+							p.Donef("%s -> %s\n", args[i], r.Name)
+						}
 					} else {
-						p.Fprintf("%s -> (error %d)\n", args[i], r.Result)
+						if common.jsonOutput {
+							p.PrintJSON(map[string]any{"status": "error", "input": args[i], "output": nil, "code": r.Result})
+						} else {
+							p.Fprintf("%s -> (error %d)\n", args[i], r.Result)
+						}
 					}
 				}
 				return nil
@@ -271,7 +291,7 @@ func newGroupsCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			if dn == "" {
 				return fmt.Errorf("--dn is required")
@@ -293,7 +313,11 @@ func newGroupsCmd(common *commonOptions) *cobra.Command {
 					}
 					p.Successf("Membership groups: %d\n", len(items))
 					for i := range items {
-						p.Donef("%s\n", items[i].DistinguishedName)
+						if common.jsonOutput {
+							p.PrintJSON(map[string]any{"dn": items[i].DistinguishedName, "type": "membership"})
+						} else {
+							p.Donef("%s\n", items[i].DistinguishedName)
+						}
 					}
 				}
 
@@ -304,7 +328,11 @@ func newGroupsCmd(common *commonOptions) *cobra.Command {
 					}
 					p.Successf("Authorization groups: %d\n", len(items))
 					for i := range items {
-						p.Donef("%s\n", items[i].DistinguishedName)
+						if common.jsonOutput {
+							p.PrintJSON(map[string]any{"dn": items[i].DistinguishedName, "type": "authz"})
+						} else {
+							p.Donef("%s\n", items[i].DistinguishedName)
+						}
 					}
 				}
 
@@ -333,7 +361,7 @@ func newGroupMembersCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			groupDN = strings.TrimSpace(groupDN)
 			partitionDN = strings.TrimSpace(partitionDN)
 			if groupDN == "" {
@@ -350,14 +378,22 @@ func newGroupMembersCmd(common *commonOptions) *cobra.Command {
 				}
 				p.Successf("Members: %d\n", len(members))
 				for _, m := range members {
-					label := strings.TrimSpace(m.DistinguishedName)
-					if label == "" {
-						label = strings.TrimSpace(m.Name)
+					if common.jsonOutput {
+						p.PrintJSON(map[string]any{
+							"dn":             strings.TrimSpace(m.DistinguishedName),
+							"name":           strings.TrimSpace(m.Name),
+							"samAccountName": strings.TrimSpace(m.SamAccountName),
+						})
+					} else {
+						label := strings.TrimSpace(m.DistinguishedName)
+						if label == "" {
+							label = strings.TrimSpace(m.Name)
+						}
+						if label == "" {
+							label = strings.TrimSpace(m.SamAccountName)
+						}
+						p.Donef("%s\n", label)
 					}
-					if label == "" {
-						label = strings.TrimSpace(m.SamAccountName)
-					}
-					p.Donef("%s\n", label)
 				}
 				return nil
 			})
@@ -383,7 +419,7 @@ func newOptFeatureCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			distinguishedName = strings.TrimSpace(distinguishedName)
 			featureID = strings.TrimSpace(featureID)
 			if distinguishedName == "" {
@@ -403,7 +439,11 @@ func newOptFeatureCmd(common *commonOptions) *cobra.Command {
 				if err := client.ADCAPChangeOptionalFeature(distinguishedName, enable, featureID); err != nil {
 					return err
 				}
-				p.Donef("OK\n")
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "optfeature", "dn": distinguishedName})
+				} else {
+					p.Donef("OK\n")
+				}
 				return nil
 			})
 		},
@@ -429,13 +469,17 @@ func newInfoCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
 				ver, err := client.ADCAPGetVersion()
 				if err != nil {
 					return err
 				}
-				p.Donef("Version: %d.%d (%s)\n", ver.Major, ver.Minor, strings.TrimSpace(ver.String))
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"major": ver.Major, "minor": ver.Minor, "string": strings.TrimSpace(ver.String)})
+				} else {
+					p.Donef("Version: %d.%d (%s)\n", ver.Major, ver.Minor, strings.TrimSpace(ver.String))
+				}
 				return nil
 			})
 		},
@@ -448,20 +492,33 @@ func newInfoCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
 				d, err := client.ADCAPGetADDomain()
 				if err != nil {
 					return err
 				}
-				p.Donef("DistinguishedName: %s\n", strings.TrimSpace(d.DistinguishedName))
-				p.Donef("DNSRoot: %s\n", strings.TrimSpace(d.DNSRoot))
-				p.Donef("NetBIOSName: %s\n", strings.TrimSpace(d.NetBIOSName))
-				p.Donef("Forest: %s\n", strings.TrimSpace(d.Forest))
-				p.Donef("DomainMode: %d\n", d.DomainMode)
-				p.Donef("PDCEmulator: %s\n", strings.TrimSpace(d.PDCEmulator))
-				p.Donef("RIDMaster: %s\n", strings.TrimSpace(d.RIDMaster))
-				p.Donef("InfrastructureMaster: %s\n", strings.TrimSpace(d.InfrastructureMaster))
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{
+						"distinguishedName":    strings.TrimSpace(d.DistinguishedName),
+						"dnsRoot":              strings.TrimSpace(d.DNSRoot),
+						"netBIOSName":          strings.TrimSpace(d.NetBIOSName),
+						"forest":               strings.TrimSpace(d.Forest),
+						"domainMode":           d.DomainMode,
+						"pdcEmulator":          strings.TrimSpace(d.PDCEmulator),
+						"ridMaster":            strings.TrimSpace(d.RIDMaster),
+						"infrastructureMaster": strings.TrimSpace(d.InfrastructureMaster),
+					})
+				} else {
+					p.Donef("DistinguishedName: %s\n", strings.TrimSpace(d.DistinguishedName))
+					p.Donef("DNSRoot: %s\n", strings.TrimSpace(d.DNSRoot))
+					p.Donef("NetBIOSName: %s\n", strings.TrimSpace(d.NetBIOSName))
+					p.Donef("Forest: %s\n", strings.TrimSpace(d.Forest))
+					p.Donef("DomainMode: %d\n", d.DomainMode)
+					p.Donef("PDCEmulator: %s\n", strings.TrimSpace(d.PDCEmulator))
+					p.Donef("RIDMaster: %s\n", strings.TrimSpace(d.RIDMaster))
+					p.Donef("InfrastructureMaster: %s\n", strings.TrimSpace(d.InfrastructureMaster))
+				}
 				return nil
 			})
 		},
@@ -474,20 +531,33 @@ func newInfoCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
 				f, err := client.ADCAPGetADForest()
 				if err != nil {
 					return err
 				}
-				p.Donef("Name: %s\n", strings.TrimSpace(f.Name))
-				p.Donef("RootDomain: %s\n", strings.TrimSpace(f.RootDomain))
-				p.Donef("ForestMode: %d\n", f.ForestMode)
-				p.Donef("SchemaMaster: %s\n", strings.TrimSpace(f.SchemaMaster))
-				p.Donef("DomainNamingMaster: %s\n", strings.TrimSpace(f.DomainNamingMaster))
-				p.Donef("Domains: %d\n", len(f.Domains))
-				p.Donef("Sites: %d\n", len(f.Sites))
-				p.Donef("GlobalCatalogs: %d\n", len(f.GlobalCatalogs))
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{
+						"name":               strings.TrimSpace(f.Name),
+						"rootDomain":         strings.TrimSpace(f.RootDomain),
+						"forestMode":         f.ForestMode,
+						"schemaMaster":       strings.TrimSpace(f.SchemaMaster),
+						"domainNamingMaster": strings.TrimSpace(f.DomainNamingMaster),
+						"domains":            len(f.Domains),
+						"sites":              len(f.Sites),
+						"globalCatalogs":     len(f.GlobalCatalogs),
+					})
+				} else {
+					p.Donef("Name: %s\n", strings.TrimSpace(f.Name))
+					p.Donef("RootDomain: %s\n", strings.TrimSpace(f.RootDomain))
+					p.Donef("ForestMode: %d\n", f.ForestMode)
+					p.Donef("SchemaMaster: %s\n", strings.TrimSpace(f.SchemaMaster))
+					p.Donef("DomainNamingMaster: %s\n", strings.TrimSpace(f.DomainNamingMaster))
+					p.Donef("Domains: %d\n", len(f.Domains))
+					p.Donef("Sites: %d\n", len(f.Sites))
+					p.Donef("GlobalCatalogs: %d\n", len(f.GlobalCatalogs))
+				}
 				return nil
 			})
 		},
@@ -507,7 +577,7 @@ func newInfoDCsCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			return withClient(cmd, *common, func(client *adws.WSClient) error {
 				inputs := make([]string, 0, len(ntdsDNs))
 				for _, dn := range ntdsDNs {
@@ -545,11 +615,20 @@ func newInfoDCsCmd(common *commonOptions) *cobra.Command {
 					if host == "" {
 						host = strings.TrimSpace(dc.Name)
 					}
-					site := strings.TrimSpace(dc.Site)
-					if site != "" {
-						p.Donef("%s (site=%s ldap=%d ssl=%d)\n", host, site, dc.LdapPort, dc.SslPort)
+					if common.jsonOutput {
+						p.PrintJSON(map[string]any{
+							"hostname": host,
+							"site":     strings.TrimSpace(dc.Site),
+							"ldapPort": dc.LdapPort,
+							"sslPort":  dc.SslPort,
+						})
 					} else {
-						p.Donef("%s (ldap=%d ssl=%d)\n", host, dc.LdapPort, dc.SslPort)
+						site := strings.TrimSpace(dc.Site)
+						if site != "" {
+							p.Donef("%s (site=%s ldap=%d ssl=%d)\n", host, site, dc.LdapPort, dc.SslPort)
+						} else {
+							p.Donef("%s (ldap=%d ssl=%d)\n", host, dc.LdapPort, dc.SslPort)
+						}
 					}
 				}
 				return nil
@@ -573,14 +652,14 @@ func newCreateComputerCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			name = strings.TrimSpace(name)
 			parentDN = strings.TrimSpace(parentDN)
 			if name == "" {
 				return fmt.Errorf("--name is required")
 			}
 			if pass == "" || strings.TrimSpace(pass) == "" {
-				return fmt.Errorf("--name and --pass are required")
+				return fmt.Errorf("--pass is required")
 			}
 			if parentDN == "" {
 				parentDN = fmt.Sprintf("CN=Computers,%s", common.baseDN)
@@ -594,7 +673,11 @@ func newCreateComputerCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
@@ -620,7 +703,7 @@ func newCreateUserCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			name = strings.TrimSpace(name)
 			parentDN = strings.TrimSpace(parentDN)
 			if name == "" {
@@ -643,7 +726,11 @@ func newCreateUserCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
@@ -669,7 +756,7 @@ func newCreateGroupCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			name = strings.TrimSpace(name)
 			groupType = strings.TrimSpace(groupType)
 			parentDN = strings.TrimSpace(parentDN)
@@ -691,7 +778,11 @@ func newCreateGroupCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
@@ -715,7 +806,7 @@ func newCreateOUCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			name = strings.TrimSpace(name)
 			parentDN = strings.TrimSpace(parentDN)
 			if name == "" {
@@ -732,7 +823,11 @@ func newCreateOUCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
@@ -755,7 +850,7 @@ func newCreateContainerCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			name = strings.TrimSpace(name)
 			parentDN = strings.TrimSpace(parentDN)
 			if name == "" {
@@ -772,7 +867,11 @@ func newCreateContainerCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
@@ -809,7 +908,7 @@ func newAttrOpCmd(common *commonOptions, op string) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			dn = strings.TrimSpace(dn)
 			attr = strings.TrimSpace(attr)
 			if dn == "" {
@@ -826,7 +925,11 @@ func newAttrOpCmd(common *commonOptions, op string) *cobra.Command {
 				if err := client.WSTransferModifyAttribute(dn, op, attr, values); err != nil {
 					return err
 				}
-				p.Donef("Updated %s\n", dn)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": op, "dn": dn, "attr": attr})
+				} else {
+					p.Donef("Updated %s\n", dn)
+				}
 				return nil
 			})
 		},
@@ -933,7 +1036,7 @@ func newMexCmd(common *commonOptions) *cobra.Command {
 			if dc == "" {
 				return fmt.Errorf("--dc is required")
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 			client, err := newClient(*common)
 			if err != nil {
 				return err
@@ -944,8 +1047,12 @@ func newMexCmd(common *commonOptions) *cobra.Command {
 			}
 			p.Successf("Endpoints: %d\n", len(meta.Endpoints))
 			for _, ep := range meta.Endpoints {
-				p.Donef("  %-45s  auth=%-9s  identity=%s\n",
-					ep.Address, ep.AuthType, ep.Identity)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"address": ep.Address, "authType": ep.AuthType, "identity": ep.Identity})
+				} else {
+					p.Donef("  %-45s  auth=%-9s  identity=%s\n",
+						ep.Address, ep.AuthType, ep.Identity)
+				}
 			}
 			return nil
 		},

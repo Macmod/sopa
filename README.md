@@ -93,6 +93,24 @@ $ sopa info dcs     --dc <DC_FQDN>
 $ sopa mex --dc <DC>
 ```
 
+## Interactive shell
+
+Run `sopa` without a subcommand to open an interactive shell. It reuses a single connection for all commands and provides tab-completion.
+
+```bash
+$ sopa --dc <DC> -u <USER> -p <PASS> -d <DOMAIN>
+
+sopa v1.1.0
+Connected  dc.corp.local  domain=corp.local  user=Administrator
+Type 'help' for commands or 'exit' to quit.
+
+[corp.local]> query --filter '(objectClass=user)' --attrs sAMAccountName
+[corp.local]> get --dn 'CN=Administrator,CN=Users,DC=corp,DC=local'
+[corp.local]> exit
+```
+
+Use `exit`, `quit`, or Ctrl-D to leave the shell.
+
 ## Custom objects creation
 
 Example template: [examples/custom-create.example.yaml](examples/custom-create.example.yaml)

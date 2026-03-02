@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "v1.0.0"
+var version = "v1.1.0"
 
 type commonOptions struct {
 	dcFQDN      string
@@ -31,6 +31,7 @@ type commonOptions struct {
 	baseDN      string
 	debugXML    bool
 	noColor     bool
+	jsonOutput  bool
 }
 
 func main() {
@@ -59,8 +60,20 @@ func newRootCmd() *cobra.Command {
 		}
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
-
 	cmd.SetVersionTemplate("sopa {{.Version}}\n")
+
+	// When no subcommand is specified, launch the interactive shell.
+	cmd.RunE = func(c *cobra.Command, _ []string) error {
+		if shellMode {
+			// Guard: we're already inside the shell; cobra routed an unknown
+			// command back to root. Just print usage and return.
+			return c.Usage()
+		}
+		if err := normalizeCommonOptions(&common); err != nil {
+			return err
+		}
+		return RunShell(c, &common)
+	}
 
 	pf := cmd.PersistentFlags()
 	pf.StringVarP(&common.dcFQDN, "dc", "", "", "Domain Controller FQDN or IP (required)")
@@ -80,6 +93,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVarP(&common.baseDN, "basedn", "b", "", "Base DN (default: derived from --domain)")
 	pf.BoolVarP(&common.debugXML, "debug-xml", "x", false, "Print raw SOAP XML requests and responses")
 	pf.BoolVarP(&common.noColor, "no-color", "N", false, "Disable colored output")
+	pf.BoolVarP(&common.jsonOutput, "json", "j", false, "Output as NDJSON (one JSON object per line; suppresses decorative messages)")
 
 	cmd.AddCommand(newQueryCmd(&common))
 	cmd.AddCommand(newGetCmd(&common))
@@ -127,7 +141,7 @@ func normalizeCommonOptions(common *commonOptions) error {
 
 	hasCert := common.pfxFile != "" || common.certFile != ""
 	if common.dcFQDN == "" || common.username == "" || common.domain == "" {
-		return fmt.Errorf("--dc, --username, and --domain are required")
+		return fmt.Errorf("--dc, --username (-u), and --domain (-d) are required, except for the mex command which only requires --dc")
 	}
 	if strings.TrimSpace(common.password) == "" && common.ntHash == "" && common.aesKey == "" && common.ccache == "" && !hasCert {
 		return fmt.Errorf("provide one of --password, --nthash, --aes-key, --ccache, --pfx, or --cert/--key")

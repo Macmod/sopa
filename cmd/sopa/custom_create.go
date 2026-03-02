@@ -38,7 +38,7 @@ func newCreateCustomCmd(common *commonOptions) *cobra.Command {
 			if err := normalizeCommonOptions(common); err != nil {
 				return err
 			}
-			p := NewPrinter(cmd.OutOrStdout(), common.noColor)
+			p := NewPrinter(cmd.OutOrStdout(), common.noColor, common.jsonOutput)
 
 			templatePath = strings.TrimSpace(templatePath)
 			if templatePath == "" {
@@ -57,7 +57,11 @@ func newCreateCustomCmd(common *commonOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				p.Donef("Created %s\n", newDN)
+				if common.jsonOutput {
+					p.PrintJSON(map[string]any{"status": "ok", "op": "create", "dn": newDN})
+				} else {
+					p.Donef("Created %s\n", newDN)
+				}
 				return nil
 			})
 		},
