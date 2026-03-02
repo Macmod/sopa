@@ -93,6 +93,8 @@ $ sopa info dcs     --dc <DC_FQDN>
 $ sopa mex --dc <DC>
 ```
 
+## Custom objects creation
+
 Example template: [examples/custom-create.example.yaml](examples/custom-create.example.yaml)
 
 Template schema (YAML):
