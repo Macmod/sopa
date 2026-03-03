@@ -1032,7 +1032,7 @@ func newMexCmd(common *commonOptions) *cobra.Command {
 		Use:   "mex",
 		Short: "Fetch ADWS service metadata (unauthenticated MEX endpoint)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dc := strings.TrimSpace(common.dcFQDN)
+			dc := strings.TrimSpace(common.dcAddr)
 			if dc == "" {
 				return fmt.Errorf("--dc is required")
 			}

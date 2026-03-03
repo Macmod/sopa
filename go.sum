@@ -1,5 +1,5 @@
-github.com/Macmod/go-adws v1.0.1 h1:y2fYhn7DoWqWEQdLshgR0zEwx+0p3Q5ouKd868rR9Zk=
-github.com/Macmod/go-adws v1.0.1/go.mod h1:ODKGzaWU3cMZY1/FUmc6CelMYObGVLCWidMI1Xhvp1w=
+github.com/Macmod/go-adws v1.1.0 h1:2WhytscJi+eRMneFL0eu5+ZauynYkImwTnmnqDkVkoY=
+github.com/Macmod/go-adws v1.1.0/go.mod h1:ODKGzaWU3cMZY1/FUmc6CelMYObGVLCWidMI1Xhvp1w=
 github.com/RedTeamPentesting/adauth v0.5.3 h1:+M887p9uWNR9gHsgaXOkFIVxCDjBUaEiAhbPYqUZmVM=
 github.com/RedTeamPentesting/adauth v0.5.3/go.mod h1:l6FRaC2TliS/JMNWskO3J1tmrcKJyOaMFhWC6hHeWno=
 github.com/c-bata/go-prompt v0.2.6 h1:POP+nrHE+DfLYx370bedwNhsqmpCUynWPxuHi0C5vZI=

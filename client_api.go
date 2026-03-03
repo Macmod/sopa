@@ -2,6 +2,7 @@
 package adws
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -24,7 +25,8 @@ import (
 const (
 	defaultADWSPort           = 9389
 	defaultLDAPPort           = 389
-	defaultConnectTimeout     = 30 * time.Second
+	defaultDNSTimeout         = 10 * time.Second
+	defaultTCPTimeout         = 30 * time.Second
 	defaultMaxElementsPerPull = 10
 )
 
@@ -45,8 +47,8 @@ type ADWSValue = soap.ADWSValue
 //   3. NMF (.NET Message Framing) - Record boundaries and encoding negotiation
 //   4. SOAP/XML - WS-Enumeration/WS-Transfer protocol operations
 type WSClient struct {
-	dcFQDN      string        // DC fully-qualified domain name
-	port        int           // ADWS port (default 9389)
+	properDCAddr string        // DC address resolved at construction time (FQDN or IP)
+	port         int           // ADWS port (default 9389)
 	ldapPort    int           // LDAP instance port advertised in SOAP headers (default 389)
 	username    string        // Domain\username or username@domain
 	password    string        // Password
@@ -57,10 +59,12 @@ type WSClient struct {
 	pfxPassword string        // Password for PFX file
 	certFile    string        // PEM certificate file for PKINIT
 	keyFile     string        // PEM private key file for PKINIT
-	kerberos    bool          // Prefer Kerberos/SPNEGO when true
-	domain      string        // Domain name
-	timeout     time.Duration // Connection timeout
-	tlsConfig   *tls.Config   // TLS config (for future TLS support)
+	kerberosNeeded bool                      // Prefer Kerberos/SPNEGO when true
+	domain       string                    // Domain name
+	dnsTimeout   time.Duration             // Timeout for DNS operations (DC discovery / PTR lookup)
+	tcpTimeout   time.Duration             // Timeout for TCP dial and protocol operations
+	resolverOpts transport.ResolverOptions // DNS resolver options
+	tlsConfig    *tls.Config               // TLS config (for future TLS support)
 
 	// Connection state
 	conn      net.Conn                 // TCP connection
@@ -72,7 +76,7 @@ type WSClient struct {
 
 // Config contains ADWS client configuration.
 type Config struct {
-	DCFQDN      string        // DC fully-qualified domain name (required)
+	DCAddr      string        // DC address: FQDN, IP, or empty to trigger SRV-based discovery
 	Port        int           // ADWS port (default 9389)
 	LDAPPort    int           // LDAP port used in SOAP headers for the target directory service (default 389; use 3268 for GC)
 	Username    string        // Domain\username or username@domain (required)
@@ -86,18 +90,19 @@ type Config struct {
 	KeyFile     string        // PEM RSA private key file for PKINIT (use with CertFile)
 	UseKerberos bool          // Use SPNEGO/Kerberos negotiation
 	Domain      string        // Domain name (required)
-	Timeout     time.Duration // Connection timeout (default 30s)
-	UseTLS      bool          // Use TLS (future - currently not supported by ADWS)
-	DebugXML    bool          // Print raw SOAP XML when true (or via ADWS_DEBUG_XML=1)
+	DNSTimeout  time.Duration // Timeout for DNS operations - DC discovery and PTR lookup (default 10s)
+	TCPTimeout  time.Duration // Timeout for TCP dial and ADWS protocol operations (default 30s)
+	UseTLS          bool                      // Use TLS (future - currently not supported by ADWS)
+	DebugXML        bool                      // Print raw SOAP XML when true (or via ADWS_DEBUG_XML=1)
+	ResolverOptions transport.ResolverOptions // DNS resolver options for DC discovery and dialling
 }
 
 // NewWSClient creates a new ADWS client with the given configuration.
 // Credential fields (Username, Password, etc.) are validated at Connect() time,
 // so callers that only intend to call GetMetadata() may omit them.
+// DCAddr may be empty when Domain is set; in that case a DC is discovered via
+// DNS SRV records (_ldap._tcp.<domain>) immediately during construction.
 func NewWSClient(cfg Config) (*WSClient, error) {
-	if cfg.DCFQDN == "" {
-		return nil, fmt.Errorf("DCFQDN is required")
-	}
 	if cfg.CertFile != "" && cfg.KeyFile == "" {
 		return nil, fmt.Errorf("KeyFile is required when CertFile is set")
 	}
@@ -111,28 +116,42 @@ func NewWSClient(cfg Config) (*WSClient, error) {
 	if cfg.LDAPPort <= 0 || cfg.LDAPPort > 65535 {
 		return nil, fmt.Errorf("LDAPPort out of range: %d", cfg.LDAPPort)
 	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = defaultConnectTimeout
+	if cfg.DNSTimeout == 0 {
+		cfg.DNSTimeout = defaultDNSTimeout
+	}
+	if cfg.TCPTimeout == 0 {
+		cfg.TCPTimeout = defaultTCPTimeout
 	}
 
 	hasCert := cfg.PFXFile != "" || cfg.CertFile != ""
+	kerberosNeeded := cfg.UseKerberos || cfg.CCachePath != "" || cfg.AESKey != "" || hasCert
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.DNSTimeout)
+	defer cancel()
+	properDCAddr, err := resolveProperDCAddr(ctx, cfg.DCAddr, cfg.Domain, kerberosNeeded, cfg.ResolverOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve DC address: %w", err)
+	}
+
 	return &WSClient{
-		dcFQDN:      cfg.DCFQDN,
-		port:        cfg.Port,
-		ldapPort:    cfg.LDAPPort,
-		username:    cfg.Username,
-		password:    cfg.Password,
-		ntHash:      cfg.NTHash,
-		aesKey:      cfg.AESKey,
-		ccache:      cfg.CCachePath,
-		pfxFile:     cfg.PFXFile,
-		pfxPassword: cfg.PFXPassword,
-		certFile:    cfg.CertFile,
-		keyFile:     cfg.KeyFile,
-		kerberos:    cfg.UseKerberos || cfg.CCachePath != "" || cfg.AESKey != "" || hasCert,
-		domain:      cfg.Domain,
-		timeout:     cfg.Timeout,
-		debugXML:    cfg.DebugXML,
+		properDCAddr:   properDCAddr,
+		port:           cfg.Port,
+		ldapPort:       cfg.LDAPPort,
+		username:       cfg.Username,
+		password:       cfg.Password,
+		ntHash:         cfg.NTHash,
+		aesKey:         cfg.AESKey,
+		ccache:         cfg.CCachePath,
+		pfxFile:        cfg.PFXFile,
+		pfxPassword:    cfg.PFXPassword,
+		certFile:       cfg.CertFile,
+		keyFile:        cfg.KeyFile,
+		kerberosNeeded: kerberosNeeded,
+		domain:         cfg.Domain,
+		dnsTimeout:     cfg.DNSTimeout,
+		tcpTimeout:     cfg.TCPTimeout,
+		resolverOpts:   cfg.ResolverOptions,
+		debugXML:       cfg.DebugXML,
 	}, nil
 }
 
@@ -154,16 +173,19 @@ func (c *WSClient) Connect() error {
 		return fmt.Errorf("one of Password, NTHash, AESKey, CCachePath, PFXFile, or CertFile+KeyFile is required")
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
+	defer cancel()
+
+	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s:%d: %w", c.dcFQDN, c.port, err)
+		return err
 	}
 	c.conn = conn
 
-	targetSPN := c.buildTargetSPN(c.dcFQDN)
+	targetSPN := c.buildTargetSPN(c.properDCAddr)
 	c.nnsConn = c.newNNSConnection(c.conn, targetSPN)
 
-	c.nmfConn = transport.NewNMFConnection(c.nnsConn, c.dcFQDN, c.port)
+	c.nmfConn = transport.NewNMFConnection(c.nnsConn, c.properDCAddr, c.port)
 
 	resource := wsenum.EndpointEnumeration
 	if err := c.nmfConn.Connect(resource); err != nil {
@@ -186,7 +208,7 @@ func (c *WSClient) Query(baseDN, filter string, attrs []string, scope int) ([]AD
 		return nil, err
 	}
 
-	service := wsenum.NewWSEnumClient(c.nmfConn, c.dcFQDN, c.port, c.ldapPort, c.debugPrintXML, c.debugPrintPullResult)
+	service := wsenum.NewWSEnumClient(c.nmfConn, c.properDCAddr, c.port, c.ldapPort, c.debugPrintXML, c.debugPrintPullResult)
 	return wsenum.ExecuteQuery(service, baseDN, filter, attrs, scope, defaultMaxElementsPerPull, defaultMaxElementsPerPull, nil)
 }
 
@@ -207,22 +229,25 @@ func (c *WSClient) Get(dn string, attrs []string) (*ADWSItem, error) {
 // GetMetadata fetches and parses the WS-MetadataExchange document from the unauthenticated
 // ADWS MEX endpoint. No credentials are required.
 func (c *WSClient) GetMetadata() (*wsmex.ADWSMetadata, error) {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
+	defer cancel()
+
+	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s:%d: %w", c.dcFQDN, c.port, err)
+		return nil, err
 	}
 
-	targetSPN := c.buildTargetSPN(c.dcFQDN)
+	targetSPN := c.buildTargetSPN(c.properDCAddr)
 	nnsConn := transport.NewNNSConnectionAnonymous(conn, targetSPN, false, transport.ProtectionNone)
 
-	nmfConn := transport.NewNMFConnection(nnsConn, c.dcFQDN, c.port)
+	nmfConn := transport.NewNMFConnection(nnsConn, c.properDCAddr, c.port)
 	if err := nmfConn.Connect(wsmex.EndpointMEX); err != nil {
 		_ = nnsConn.Close()
 		return nil, fmt.Errorf("NMF connection to MEX endpoint failed: %w", err)
 	}
 	defer nnsConn.Close()
 
-	client := wsmex.NewWSMexClient(nmfConn, c.dcFQDN, c.port, c.debugPrintXML)
+	client := wsmex.NewWSMexClient(nmfConn, c.properDCAddr, c.port, c.debugPrintXML)
 	return client.GetMetadata()
 }
 
@@ -297,7 +322,7 @@ func (c *WSClient) QueryWithBatchChannel(baseDN, filter string, attrs []string, 
 		return err
 	}
 
-	service := wsenum.NewWSEnumClient(c.nmfConn, c.dcFQDN, c.port, c.ldapPort, c.debugPrintXML, c.debugPrintPullResult)
+	service := wsenum.NewWSEnumClient(c.nmfConn, c.properDCAddr, c.port, c.ldapPort, c.debugPrintXML, c.debugPrintPullResult)
 	_, err = wsenum.ExecuteQuery(service, baseDN, filter, attrs, scope, maxElementsPerPull, defaultMaxElementsPerPull, batchChannel)
 	return err
 }
@@ -376,14 +401,20 @@ func (c *WSClient) IsConnected() bool {
 	return c.connected
 }
 
-// GetDCFQDN returns the DC FQDN this client is connected to.
+// GetDCAddr returns the DC address this client resolved at construction time.
+// This is an FQDN when Kerberos is in use, or whatever was passed / discovered otherwise.
 func (c *WSClient) GetDCFQDN() string {
-	return c.dcFQDN
+	return c.properDCAddr
 }
 
-// SetTimeout sets the connection timeout.
-func (c *WSClient) SetTimeout(timeout time.Duration) {
-	c.timeout = timeout
+// SetDNSTimeout sets the timeout for DNS operations (DC discovery and PTR lookup).
+func (c *WSClient) SetDNSTimeout(timeout time.Duration) {
+	c.dnsTimeout = timeout
+}
+
+// SetTCPTimeout sets the timeout for TCP dial and ADWS protocol operations.
+func (c *WSClient) SetTCPTimeout(timeout time.Duration) {
+	c.tcpTimeout = timeout
 }
 
 // SetDebugXML enables/disables raw SOAP response logging.
@@ -554,37 +585,49 @@ func (c *WSClient) withEndpointWSTransferClientResult(endpoint string, fn func(t
 		return nil, fmt.Errorf("fn is required")
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
+	defer cancel()
+
+	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s:%d: %w", c.dcFQDN, c.port, err)
+		return nil, err
 	}
 
-	targetSPN := c.buildTargetSPN(c.dcFQDN)
+	targetSPN := c.buildTargetSPN(c.properDCAddr)
 	nnsConn := c.newNNSConnection(conn, targetSPN)
 
-	nmfConn := transport.NewNMFConnection(nnsConn, c.dcFQDN, c.port)
+	nmfConn := transport.NewNMFConnection(nnsConn, c.properDCAddr, c.port)
 	if err := nmfConn.Connect(endpoint); err != nil {
 		_ = nnsConn.Close()
 		return nil, fmt.Errorf("NMF connection failed for endpoint %s: %w", endpoint, err)
 	}
 	defer nnsConn.Close()
 
-	tx := wstransfer.NewWSTransferClient(nmfConn, c.dcFQDN, c.port, endpoint, c.ldapPort, c.debugPrintXML)
+	tx := wstransfer.NewWSTransferClient(nmfConn, c.properDCAddr, c.port, endpoint, c.ldapPort, c.debugPrintXML)
 	return fn(tx)
 }
 
 func (c *WSClient) buildTargetSPN(target string) string {
-	host := target
+	return fmt.Sprintf("host/%s", target)
+}
 
-	if c.kerberos {
-		if ip := net.ParseIP(target); ip != nil {
-			if names, err := net.LookupAddr(target); err == nil && len(names) > 0 {
-				host = strings.TrimSuffix(strings.TrimSpace(names[0]), ".")
-			}
+// resolveProperDCAddr determines the address (FQDN or IP) to use for connecting
+// to the DC and for Kerberos targeting.
+//
+//   - Empty dcAddr + domain set  → SRV discovery (_ldap._tcp.<domain>)
+//   - IP + kerberosNeeded        → PTR reverse lookup to obtain the FQDN
+//   - Anything else              → returned unchanged
+func resolveProperDCAddr(ctx context.Context, dcAddr, domain string, kerberosNeeded bool, opts transport.ResolverOptions) (string, error) {
+	if dcAddr == "" {
+		if domain == "" {
+			return "", fmt.Errorf("DCAddr and Domain are both empty: cannot discover a DC")
 		}
+		return transport.DiscoverDC(ctx, domain, opts)
 	}
-
-	return fmt.Sprintf("host/%s", host)
+	if net.ParseIP(dcAddr) != nil && kerberosNeeded {
+		return transport.ResolveIPToFQDN(ctx, dcAddr, opts)
+	}
+	return dcAddr, nil
 }
 
 func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.NNSConnection {
@@ -603,7 +646,8 @@ func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.
 			rsaKey, x509Cert, loadErr = transport.LoadPEM(c.certFile, c.keyFile)
 		}
 		if loadErr == nil {
-			return transport.NewNNSConnectionWithPKINIT(conn, c.domain, c.username, x509Cert, rsaKey, targetSPN, chosenLevel)
+			return transport.NewNNSConnectionWithPKINIT(conn, c.domain, c.username, x509Cert, rsaKey, targetSPN, chosenLevel).
+				WithResolverOptions(c.resolverOpts)
 		}
 		// If credential load fails, fall through so Connect() surfaces the real error at auth time.
 		_, _ = fmt.Fprintf(os.Stderr, "sopa: PKINIT credential load error: %v\n", loadErr)
@@ -617,7 +661,7 @@ func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.
 			c.ccache,
 			targetSPN,
 			chosenLevel,
-		)
+		).WithResolverOptions(c.resolverOpts)
 	}
 
 	if c.aesKey != "" {
@@ -628,7 +672,7 @@ func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.
 			c.aesKey,
 			targetSPN,
 			chosenLevel,
-		)
+		).WithResolverOptions(c.resolverOpts)
 	}
 
 	if c.ntHash != "" {
@@ -638,9 +682,9 @@ func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.
 			c.username,
 			c.ntHash,
 			targetSPN,
-			c.kerberos,
+			c.kerberosNeeded,
 			chosenLevel,
-		)
+		).WithResolverOptions(c.resolverOpts)
 	}
 
 	return transport.NewNNSConnection(
@@ -649,9 +693,9 @@ func (c *WSClient) newNNSConnection(conn net.Conn, targetSPN string) *transport.
 		c.username,
 		c.password,
 		targetSPN,
-		c.kerberos,
+		c.kerberosNeeded,
 		chosenLevel,
-	)
+	).WithResolverOptions(c.resolverOpts)
 }
 
 // NameTranslateResult is the public alias for an MS-ADCAP TranslateName result.
@@ -894,22 +938,25 @@ func (c *WSClient) withAccountManagementClient(fn func(am *wscap.WSCapClient) er
 		return fmt.Errorf("fn is required")
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
+	defer cancel()
+
+	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s:%d: %w", c.dcFQDN, c.port, err)
+		return err
 	}
 
-	targetSPN := c.buildTargetSPN(c.dcFQDN)
+	targetSPN := c.buildTargetSPN(c.properDCAddr)
 	nnsConn := c.newNNSConnection(conn, targetSPN)
 
-	nmfConn := transport.NewNMFConnection(nnsConn, c.dcFQDN, c.port)
+	nmfConn := transport.NewNMFConnection(nnsConn, c.properDCAddr, c.port)
 	if err := nmfConn.Connect(wscap.EndpointAccountManagement); err != nil {
 		_ = nnsConn.Close()
 		return fmt.Errorf("NMF connection failed for endpoint %s: %w", wscap.EndpointAccountManagement, err)
 	}
 	defer nnsConn.Close()
 
-	am := wscap.NewWSCapClient(nmfConn, c.dcFQDN, c.port, wscap.EndpointAccountManagement, c.ldapPort, c.debugPrintXML)
+	am := wscap.NewWSCapClient(nmfConn, c.properDCAddr, c.port, wscap.EndpointAccountManagement, c.ldapPort, c.debugPrintXML)
 	return fn(am)
 }
 
@@ -1078,21 +1125,24 @@ func (c *WSClient) withTopologyManagementClient(fn func(tm *wscap.WSCapClient) e
 		return fmt.Errorf("fn is required")
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", c.dcFQDN, c.port), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
+	defer cancel()
+
+	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s:%d: %w", c.dcFQDN, c.port, err)
+		return err
 	}
 
-	targetSPN := c.buildTargetSPN(c.dcFQDN)
+	targetSPN := c.buildTargetSPN(c.properDCAddr)
 	nnsConn := c.newNNSConnection(conn, targetSPN)
 
-	nmfConn := transport.NewNMFConnection(nnsConn, c.dcFQDN, c.port)
+	nmfConn := transport.NewNMFConnection(nnsConn, c.properDCAddr, c.port)
 	if err := nmfConn.Connect(wscap.EndpointTopologyManagement); err != nil {
 		_ = nnsConn.Close()
 		return fmt.Errorf("NMF connection failed for endpoint %s: %w", wscap.EndpointTopologyManagement, err)
 	}
 	defer nnsConn.Close()
 
-	tm := wscap.NewWSCapClient(nmfConn, c.dcFQDN, c.port, wscap.EndpointTopologyManagement, c.ldapPort, c.debugPrintXML)
+	tm := wscap.NewWSCapClient(nmfConn, c.properDCAddr, c.port, wscap.EndpointTopologyManagement, c.ldapPort, c.debugPrintXML)
 	return fn(tm)
 }

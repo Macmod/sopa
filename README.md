@@ -46,50 +46,51 @@ $ go install github.com/Macmod/sopa/cmd/sopa@latest
 # Auth flags (-u, -p, -d, -k, -H, -c, ...) are omitted for brevity — see Authentication section.
 
 # Search objects by LDAP filter
-$ sopa query --dc <DC> --filter '(objectClass=*)'
+$ sopa [auth_flags] query --dc <DC> --filter '(objectClass=*)'
 
 # Fetch a single object by DN
-$ sopa get --dc <DC> --dn '<DN>'
+$ sopa [auth_flags] get --dc <DC> --dn '<DN>'
 
 # Delete an object by DN
-$ sopa delete --dc <DC> --dn '<DN>'
+$ sopa [auth_flags] delete --dc <DC> --dn '<DN>'
 
 # Edit attribute values
-$ sopa attr add     --dc <DC> --dn '<DN>' --attr <ATTR> --value <VALUE>
-$ sopa attr replace --dc <DC> --dn '<DN>' --attr <ATTR> --value <VALUE>
-$ sopa attr delete  --dc <DC> --dn '<DN>' --attr <ATTR>
+$ sopa [auth_flags] attr add     --dc <DC> --dn '<DN>' --attr <ATTR> --value <VALUE>
+$ sopa [auth_flags] attr replace --dc <DC> --dn '<DN>' --attr <ATTR> --value <VALUE>
+$ sopa [auth_flags] attr delete  --dc <DC> --dn '<DN>' --attr <ATTR>
 
 # Create objects
-$ sopa create user      --dc <DC> --name <CN> --pass <INITIAL_PASS>
-$ sopa create computer  --dc <DC> --name <CN>
-$ sopa create group     --dc <DC> --name <CN> --type GlobalSecurity
-$ sopa create ou        --dc <DC> --name <CN>
-$ sopa create container --dc <DC> --name <CN>
-$ sopa create custom    --dc <DC> --template <TEMPLATE.yaml>
+$ sopa [auth_flags] create user      --dc <DC> --name <CN> --pass <INITIAL_PASS>
+$ sopa [auth_flags] create computer  --dc <DC> --name <CN>
+$ sopa [auth_flags] create group     --dc <DC> --name <CN> --type GlobalSecurity
+$ sopa [auth_flags] create ou        --dc <DC> --name <CN>
+$ sopa [auth_flags] create container --dc <DC> --name <CN>
+$ sopa [auth_flags] create custom    --dc <DC> --template <TEMPLATE.yaml>
 
 # Set / change account passwords (MS-ADCAP)
-$ sopa set-password    --dc <DC_FQDN> --dn '<DN>' --new <NEW_PASS>
-$ sopa change-password --dc <DC_FQDN> --dn '<DN>' --old <OLD_PASS> --new <NEW_PASS>
+$ sopa [auth_flags] set-password    --dc <DC> --dn '<DN>' --new <NEW_PASS>
+$ sopa [auth_flags] change-password --dc <DC> --dn '<DN>' --old <OLD_PASS> --new <NEW_PASS>
 
 # Translate DN <-> canonical name (MS-ADCAP)
-$ sopa translate-name --dc <DC_FQDN> --offered DistinguishedName --desired CanonicalName '<DN>'
+# (this call is mostly useless but kept for completeness 😄)
+$ sopa [auth_flags] translate-name --dc <DC> --offered DistinguishedName --desired CanonicalName '<DN>'
 
 # Principal group memberships (MS-ADCAP)
-$ sopa groups --dc <DC_FQDN> --dn '<DN>' --membership --authz
+$ sopa [auth_flags] groups --dc <DC> --dn '<DN>' --membership --authz
 
 # Group members (MS-ADCAP)
-$ sopa members --dc <DC_FQDN> --dn '<GROUP_DN>' --recursive
+$ sopa [auth_flags] members --dc <DC> --dn '<GROUP_DN>' --recursive
 
 # Toggle optional AD feature, e.g. Recycle Bin (MS-ADCAP)
-$ sopa optfeature --dc <DC_FQDN> --feature-id <FEATURE_GUID> --enable
+$ sopa [auth_flags] optfeature --dc <DC> --feature-id <FEATURE_GUID> --enable
 
 # Topology info (MS-ADCAP)
-$ sopa info version --dc <DC_FQDN>
-$ sopa info domain  --dc <DC_FQDN>
-$ sopa info forest  --dc <DC_FQDN>
-$ sopa info dcs     --dc <DC_FQDN>
+$ sopa [auth_flags] info version --dc <DC>
+$ sopa [auth_flags] info domain  --dc <DC>
+$ sopa [auth_flags] info forest  --dc <DC>
+$ sopa [auth_flags] info dcs     --dc <DC>
 
-# ADWS service endpoint metadata (unauthenticated)
+# ADWS service endpoint metadata (unauthenticated - auth flags not needed)
 $ sopa mex --dc <DC>
 ```
 
@@ -129,29 +130,78 @@ Notes:
 - `hex` values are converted to `xsd:base64Binary`.
 - To set an empty string explicitly, use `value: ""`.
 
+## DC discovery & DNS
+
+`--dc` accepts a **FQDN**, an **IP address**, or can be **omitted**.
+Because the DC's hostname is sometimes not available from the network's default DNS, it is strongly recommended to always pass `--dns <DC-IP>` so that sopa uses the DC's own DNS server for all lookups:
+
+```bash
+# Option 1: let sopa resolve everything through the DC's DNS
+$ sopa query --dns 192.168.1.10 -d corp.local -u user -p pass --filter '(objectClass=user)'
+```
+
+When `--dc` is omitted and `--domain` is provided, sopa discovers a DC
+automatically by querying SRV records:
+
+```
+_ldap._tcp.<domain>        (tried first)
+_kerberos._tcp.<domain>    (fallback)
+```
+
+The target of the highest-priority record is used. This requires that the
+DNS server pointed to by `--dns` can answer those SRV queries — the DC's own
+integrated DNS server (when present) should be capable of that.
+
+```bash
+# Option 2: provide DC explicitly without Kerberos
+$ sopa info version --dc 192.168.1.10 --domain corp.local -u user -p pass
+```
+
+When an IP is provided for `--dc` and Kerberos is in use, the IP is resolved to an FQDN via a **reverse PTR lookup** so that the Kerberos SPN / KDC address are correct.
+This PTR lookup also goes through `--dns`, so a correctly configured reverse
+zone on the DC is required:
+
+```bash
+# Option 3: IP input + Kerberos: PTR lookup resolves 192.168.1.10 -> dc.corp.local
+$ sopa info version --dc 192.168.1.10 --dns 192.168.1.10 -k --domain corp.local -u user -p pass
+```
+
+When Kerberos is not in use, there is no PTR lookup — the raw IP is used throughout.
+
+All DNS operations in the stack - DC discovery, PTR resolution, ADWS TCP dial,
+and Kerberos KDC connections - use the same resolver built from `--dns` /
+`--dns-tcp`.
+
+| Flag | Description |
+|------|-------------|
+| `--dns <host[:port]>` | Custom DNS server for all lookups (SRV, PTR, forward). Defaults to port 53. |
+| `--dns-tcp` | Force DNS queries over TCP instead of UDP. Useful when UDP is blocked or SRV responses are large. |
+| `--dns-timeout <duration>` | Timeout for DNS operations (default 10s). |
+| `--tcp-timeout <duration>` | Timeout for TCP dial and ADWS protocol operations (default 30s). |
+
 # Authentication
 
 `sopa` supports the following credential modes:
 
 ```bash
 # Password
-$ sopa <action> --dc <DC> -u <USER> -p <PASS> -d <DOMAIN> ...
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> -p <PASS> <subcommand> [...]
 
 # NT hash
-$ sopa <action> --dc <DC> -u <USER> -H <NT_HASH> -d <DOMAIN> ...
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> -H <NT_HASH> <subcommand> [...]
 
-# AES session key (DC must be FQDN; Kerberos is implied)
+# AES session key (Kerberos is implied)
 # 32 hex chars = AES-128, 64 hex chars = AES-256
-$ sopa <action> --dc <DC_FQDN> -u <USER> --aes-key <HEX_KEY> -d <DOMAIN> ...
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> --aes-key <HEX_KEY> <subcommand> [...]
 
-# Kerberos ccache (DC must be FQDN; Kerberos is implied)
-$ sopa <action> --dc <DC_FQDN> -u <USER> -c <CCACHE_PATH> -d <DOMAIN> ...
+# Kerberos ccache (Kerberos is implied)
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> -c <CCACHE_PATH> <subcommand> [...]
 
-# PFX certificate
-$ sopa <action> --dc <DC_FQDN> -u <USER> --pfx <CERT.pfx> --pfx-password <PFX_PASS> -d <DOMAIN> ...
+# PFX certificate (Kerberos is implied / via PKINIT)
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> --pfx <CERT.pfx> --pfx-password <PFX_PASS> <subcommand> [...]
 
-# PEM certificate
-$ sopa <action> --dc <DC_FQDN> -u <USER> --cert <CERT.pem> --key <KEY.pem> -d <DOMAIN> ...
+# PEM certificate (Kerberos is implied / via PKINIT)
+$ sopa --dc <DC> -d <DOMAIN> -u <USER> --cert <CERT.pem> --key <KEY.pem> <subcommand> [...]
 ```
 
 # Contributing
@@ -166,6 +216,10 @@ The idea to write this tool came from a wave of ADWS-focused tools, mainly for e
 * [logangoins/SOAPy](https://github.com/logangoins/SOAPy)
 * [FalconForceTeam/SOAPHound](https://github.com/FalconForceTeam/SOAPHound)
 * [mverschu/adwsdomaindump](https://github.com/mverschu/adwsdomaindump)
+
+# SOCKS support
+
+SOCKS is currently not implemented. Use a solution like [OkamiW/proxy-ns](https://github.com/OkamiW/proxy-ns) if needed for your use case.
 
 # Acknowledgements
 

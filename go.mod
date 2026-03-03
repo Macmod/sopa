@@ -2,8 +2,9 @@ module github.com/Macmod/sopa
 
 go 1.24.1
 
+require github.com/Macmod/go-adws v1.1.0
+
 require (
-	github.com/Macmod/go-adws v1.0.1
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/cobra v1.8.1

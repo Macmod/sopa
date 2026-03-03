@@ -363,7 +363,7 @@ func RunShell(rootCmd *cobra.Command, common *commonOptions) error {
 	defer client.Close()
 
 	fmt.Printf("sopa %s\n", version)
-	fmt.Printf("Connected  %s  domain=%s  user=%s\n", common.dcFQDN, common.domain, common.username)
+	fmt.Printf("Connected  %s  domain=%s  user=%s\n", common.dcAddr, common.domain, common.username)
 	fmt.Printf("Type 'help' for commands or 'exit' to quit.\n\n")
 
 	shellMode = true
@@ -390,7 +390,7 @@ func RunShell(rootCmd *cobra.Command, common *commonOptions) error {
 		buildExecutor(rootCmd, common, client, restoreTerminal),
 		shellCompleter,
 		prompt.OptionPrefix(prefix),
-		prompt.OptionTitle("sopa ("+common.dcFQDN+")"),
+		prompt.OptionTitle("sopa ("+common.dcAddr+")"),
 		prompt.OptionPrefixTextColor(prompt.Cyan),
 		prompt.OptionPreviewSuggestionTextColor(prompt.Blue),
 		prompt.OptionSelectedSuggestionBGColor(prompt.LightGray),

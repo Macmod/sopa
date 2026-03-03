@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/Macmod/go-adws/transport"
 	adws "github.com/Macmod/sopa"
 	"github.com/spf13/cobra"
 )
 
-var version = "v1.1.0"
+var version = "v1.2.0"
 
 type commonOptions struct {
-	dcFQDN      string
+	dcAddr      string
 	port        int
 	ldapPort    int
 	username    string
@@ -32,6 +34,10 @@ type commonOptions struct {
 	debugXML    bool
 	noColor     bool
 	jsonOutput  bool
+	dnsServer   string
+	dnsTCP      bool
+	dnsTimeout  time.Duration
+	tcpTimeout  time.Duration
 }
 
 func main() {
@@ -76,7 +82,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	pf := cmd.PersistentFlags()
-	pf.StringVarP(&common.dcFQDN, "dc", "", "", "Domain Controller FQDN or IP (required)")
+	pf.StringVarP(&common.dcAddr, "dc", "", "", "Domain Controller FQDN or IP (optional; discovered via SRV when omitted)")
 	pf.IntVarP(&common.port, "port", "P", 9389, "ADWS port")
 	pf.IntVarP(&common.ldapPort, "ldap-port", "l", 389, "LDAP port used in SOAP headers (389=DC, 3268=GC)")
 	pf.StringVarP(&common.username, "username", "u", "", "Username (required)")
@@ -94,6 +100,10 @@ func newRootCmd() *cobra.Command {
 	pf.BoolVarP(&common.debugXML, "debug-xml", "x", false, "Print raw SOAP XML requests and responses")
 	pf.BoolVarP(&common.noColor, "no-color", "N", false, "Disable colored output")
 	pf.BoolVarP(&common.jsonOutput, "json", "j", false, "Output as NDJSON (one JSON object per line; suppresses decorative messages)")
+	pf.StringVar(&common.dnsServer, "dns", "", "Custom DNS server for DC discovery and dialling (host or host:port)")
+	pf.BoolVar(&common.dnsTCP, "dns-tcp", false, "Force DNS queries over TCP")
+	pf.DurationVar(&common.dnsTimeout, "dns-timeout", 0, "Timeout for DNS operations - DC discovery and PTR lookup (default 10s)")
+	pf.DurationVar(&common.tcpTimeout, "tcp-timeout", 0, "Timeout for TCP dial and ADWS protocol operations (default 30s)")
 
 	cmd.AddCommand(newQueryCmd(&common))
 	cmd.AddCommand(newGetCmd(&common))
@@ -128,7 +138,7 @@ func normalizeCommonOptions(common *commonOptions) error {
 	if common == nil {
 		return fmt.Errorf("common options are required")
 	}
-	common.dcFQDN = strings.TrimSpace(common.dcFQDN)
+	common.dcAddr = strings.TrimSpace(common.dcAddr)
 	common.username = strings.TrimSpace(common.username)
 	common.domain = strings.TrimSpace(common.domain)
 	common.ntHash = strings.TrimSpace(common.ntHash)
@@ -140,8 +150,8 @@ func normalizeCommonOptions(common *commonOptions) error {
 	common.baseDN = strings.TrimSpace(common.baseDN)
 
 	hasCert := common.pfxFile != "" || common.certFile != ""
-	if common.dcFQDN == "" || common.username == "" || common.domain == "" {
-		return fmt.Errorf("--dc, --username (-u), and --domain (-d) are required, except for the mex command which only requires --dc")
+	if common.username == "" || common.domain == "" {
+		return fmt.Errorf("--username (-u) and --domain (-d) are required")
 	}
 	if strings.TrimSpace(common.password) == "" && common.ntHash == "" && common.aesKey == "" && common.ccache == "" && !hasCert {
 		return fmt.Errorf("provide one of --password, --nthash, --aes-key, --ccache, --pfx, or --cert/--key")
@@ -157,7 +167,7 @@ func normalizeCommonOptions(common *commonOptions) error {
 
 func newClient(common commonOptions) (*adws.WSClient, error) {
 	client, err := adws.NewWSClient(adws.Config{
-		DCFQDN:      strings.TrimSpace(common.dcFQDN),
+		DCAddr:      strings.TrimSpace(common.dcAddr),
 		Port:        common.port,
 		LDAPPort:    common.ldapPort,
 		Username:    strings.TrimSpace(common.username),
@@ -171,7 +181,13 @@ func newClient(common commonOptions) (*adws.WSClient, error) {
 		KeyFile:     common.keyFile,
 		UseKerberos: common.kerberos,
 		Domain:      strings.TrimSpace(common.domain),
+		DNSTimeout:  common.dnsTimeout,
+		TCPTimeout:  common.tcpTimeout,
 		DebugXML:    common.debugXML,
+		ResolverOptions: transport.ResolverOptions{
+			NameServer: common.dnsServer,
+			UseTCP:     common.dnsTCP,
+		},
 	})
 	if err != nil {
 		return nil, err
