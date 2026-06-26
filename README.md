@@ -15,24 +15,24 @@
 
 Sopa implements the ADWS protocol stack ([MS-NNS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nns) + [MC-NMF](https://learn.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf) + SOAP), exposing the following command-line features:
 - **Object search & retrieval**
-  - `query` — runs LDAP-filter searches via WS-Enumeration `Enumerate` + `Pull` loop with attribute projection, scope control (Base/OneLevel/Subtree), and pagination
-  - `get` — fetches a single object by DN via WS-Transfer `Get`
+  - `query`: runs LDAP-filter searches via WS-Enumeration `Enumerate` + `Pull` loop with attribute projection, scope control (Base/OneLevel/Subtree), and pagination
+  - `get`: fetches a single object by DN via WS-Transfer `Get`
 - **Object lifecycle**
-  - `create` — creates objects via WS-Transfer `ResourceFactory` (built-in types: user, computer, group, OU, container; or custom objects from a YAML template via IMDA `AddRequest`)
-  - `delete` — removes an object by DN via WS-Transfer `Delete`
+  - `create`: creates objects via WS-Transfer `ResourceFactory` (built-in types: user, computer, group, OU, container; or custom objects from a YAML template via IMDA `AddRequest`)
+  - `delete`: removes an object by DN via WS-Transfer `Delete`
 - **Attribute editing**
-  - `attr` — adds, replaces, or removes individual attribute values on an existing object via WS-Transfer `Put`
+  - `attr`: adds, replaces, or removes individual attribute values on an existing object via WS-Transfer `Put`
 - **Account management**
-  - `set-password` — sets an account password via MS-ADCAP `SetPassword`
-  - `change-password` — changes an account password (requires the old password) via MS-ADCAP `ChangePassword`
+  - `set-password`: sets an account password via MS-ADCAP `SetPassword`
+  - `change-password`: changes an account password (requires the old password) via MS-ADCAP `ChangePassword`
 - **ADCAP custom actions**
-  - `translate-name` — converts between DN and canonical name formats via `TranslateName`
-  - `groups` — lists group memberships or authorization groups of a principal via `GetADPrincipalGroupMembership` / `GetADPrincipalAuthorizationGroup`
-  - `members` — enumerates group members (optionally recursive) via `GetADGroupMember`
-  - `optfeature` — toggles optional AD features (e.g. Recycle Bin) via `ChangeOptionalFeature`
-  - `info` — retrieves topology metadata (version, domain, forest, DC list) via `GetVersion`, `GetADDomain`, `GetADForest`, `GetADDomainControllers`
+  - `translate-name`: converts between DN and canonical name formats via `TranslateName`
+  - `groups`: lists group memberships or authorization groups of a principal via `GetADPrincipalGroupMembership` / `GetADPrincipalAuthorizationGroup`
+  - `members`: enumerates group members (optionally recursive) via `GetADGroupMember`
+  - `optfeature`: toggles optional AD features (e.g. Recycle Bin) via `ChangeOptionalFeature`
+  - `info`: retrieves topology metadata (version, domain, forest, DC list) via `GetVersion`, `GetADDomain`, `GetADForest`, `GetADDomainControllers`
 - **Service metadata**
-  - `mex` — fetches ADWS service endpoint metadata via an unauthenticated WS-MetadataExchange request
+  - `mex`: fetches ADWS service endpoint metadata via an unauthenticated WS-MetadataExchange request
 
 # Installation
 
@@ -43,7 +43,7 @@ $ go install github.com/Macmod/sopa/cmd/sopa@latest
 # Usage
 
 ```bash
-# Auth flags (-u, -p, -d, -k, -H, -c, ...) are omitted for brevity — see Authentication section.
+# Auth flags (-u, -p, -d, -k, -H, -c, ...) are omitted for brevity - see Authentication section.
 
 # Search objects by LDAP filter
 $ sopa [auth_flags] query --dc <DC> --filter '(objectClass=*)'
@@ -149,7 +149,7 @@ _kerberos._tcp.<domain>    (fallback)
 ```
 
 The target of the highest-priority record is used. This requires that the
-DNS server pointed to by `--dns` can answer those SRV queries — the DC's own
+DNS server pointed to by `--dns` can answer those SRV queries - the DC's own
 integrated DNS server (when present) should be capable of that.
 
 ```bash
@@ -157,16 +157,14 @@ integrated DNS server (when present) should be capable of that.
 $ sopa info version --dc 192.168.1.10 --domain corp.local -u user -p pass
 ```
 
-When an IP is provided for `--dc` and Kerberos is in use, the IP is resolved to an FQDN via a **reverse PTR lookup** so that the Kerberos SPN / KDC address are correct.
+When an IP is provided for `--dc`, the IP is always resolved to an FQDN via a **reverse PTR lookup** - the ADWS endpoint's WCF address filter requires an FQDN in the `wsa:To` header regardless of authentication method.
 This PTR lookup also goes through `--dns`, so a correctly configured reverse
 zone on the DC is required:
 
 ```bash
-# Option 3: IP input + Kerberos: PTR lookup resolves 192.168.1.10 -> dc.corp.local
-$ sopa info version --dc 192.168.1.10 --dns 192.168.1.10 -k --domain corp.local -u user -p pass
+# Option 3: IP input - PTR lookup resolves 192.168.1.10 -> dc.corp.local
+$ sopa info version --dc 192.168.1.10 --dns 192.168.1.10 --domain corp.local -u user -p pass
 ```
-
-When Kerberos is not in use, there is no PTR lookup — the raw IP is used throughout.
 
 All DNS operations in the stack - DC discovery, PTR resolution, ADWS TCP dial,
 and Kerberos KDC connections - use the same resolver built from `--dns` /
@@ -176,6 +174,8 @@ and Kerberos KDC connections - use the same resolver built from `--dns` /
 |------|-------------|
 | `--dns <host[:port]>` | Custom DNS server for all lookups (SRV, PTR, forward). Defaults to port 53. |
 | `--dns-tcp` | Force DNS queries over TCP instead of UDP. Useful when UDP is blocked or SRV responses are large. |
+| `-x / --socks5 <host:port>` | Route all TCP connections through a SOCKS5 proxy. DNS queries are also tunnelled through the proxy unless `--no-proxy-dns` is set. |
+| `--no-proxy-dns` | When `--socks5` is active, resolve DNS through the local system resolver instead of the proxy. |
 | `--dns-timeout <duration>` | Timeout for DNS operations (default 10s). |
 | `--tcp-timeout <duration>` | Timeout for TCP dial and ADWS protocol operations (default 30s). |
 
@@ -204,6 +204,21 @@ $ sopa --dc <DC> -d <DOMAIN> -u <USER> --pfx <CERT.pfx> --pfx-password <PFX_PASS
 $ sopa --dc <DC> -d <DOMAIN> -u <USER> --cert <CERT.pem> --key <KEY.pem> <subcommand> [...]
 ```
 
+# SOCKS5
+
+All TCP connections (ADWS, Kerberos, DNS) can be tunnelled through a SOCKS5 proxy via `-x` / `--socks5`:
+
+```bash
+# Route everything through a SOCKS5 proxy
+$ sopa -x 127.0.0.1:1080 --dc dc.corp.local -d corp.local -u user -p pass query --filter '(objectClass=user)'
+
+# Use the DC's own DNS through the proxy, then connect via proxy
+$ sopa -x 127.0.0.1:1080 --dns 192.168.1.10 --dc 192.168.1.10 -d corp.local -u user -p pass query --filter '(objectClass=user)'
+
+# Keep DNS local (e.g. DNS already reachable without proxy), only proxy TCP connections
+$ sopa -x 127.0.0.1:1080 --no-proxy-dns --dc dc.corp.local -d corp.local -u user -p pass query --filter '(objectClass=user)'
+```
+
 # Contributing
 
 Contributions are welcome by [opening an issue](https://github.com/Macmod/sopa/issues) or [submitting a pull request](https://github.com/Macmod/sopa/pulls).
@@ -217,23 +232,19 @@ The idea to write this tool came from a wave of ADWS-focused tools, mainly for e
 * [FalconForceTeam/SOAPHound](https://github.com/FalconForceTeam/SOAPHound)
 * [mverschu/adwsdomaindump](https://github.com/mverschu/adwsdomaindump)
 
-# SOCKS support
-
-SOCKS is currently not implemented. Use a solution like [OkamiW/proxy-ns](https://github.com/OkamiW/proxy-ns) if needed for your use case.
-
 # Acknowledgements
 
 * Big thanks to [oiweiwei](https://github.com/oiweiwei) for [go-msrpc](https://github.com/oiweiwei/go-msrpc), as his `ssp` package implemented the authentication flow with GSSAPI seamlessly.
 
 # References
 
-- [MS-NNS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nns) - .NET NegotiateStream Protocol
-- [MS-NMF](https://learn.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf) - .NET Message Framing Protocol
-- [MS-ADDM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-addm) - Active Directory Web Services: Data Model and Common Elements
-- [MS-WSDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsds) - WS-Enumeration: Directory Services Protocol Extensions
-- [MS-WSTIM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-wstim) - WS-Transfer: Identity Management Operations for Directory Access Extensions
-- [MS-ADCAP](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-adcap) - Active Directory Web Services Custom Action Protocol
-- [MS-ADTS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts) - Active Directory Technical Specification
+- [MS-NNS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nns): .NET NegotiateStream Protocol
+- [MS-NMF](https://learn.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf): .NET Message Framing Protocol
+- [MS-ADDM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-addm): Active Directory Web Services: Data Model and Common Elements
+- [MS-WSDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsds): WS-Enumeration: Directory Services Protocol Extensions
+- [MS-WSTIM](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-wstim): WS-Transfer: Identity Management Operations for Directory Access Extensions
+- [MS-ADCAP](https://learn.microsoft.com/zh-cn/openspecs/windows_protocols/ms-adcap): Active Directory Web Services Custom Action Protocol
+- [MS-ADTS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts): Active Directory Technical Specification
 
 # License
 

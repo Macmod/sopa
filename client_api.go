@@ -64,6 +64,7 @@ type WSClient struct {
 	dnsTimeout   time.Duration             // Timeout for DNS operations (DC discovery / PTR lookup)
 	tcpTimeout   time.Duration             // Timeout for TCP dial and protocol operations
 	resolverOpts transport.ResolverOptions // DNS resolver options
+	dialFunc     transport.DialFunc        // TCP dialer (nil = plain net.Dialer)
 	tlsConfig    *tls.Config               // TLS config (for future TLS support)
 
 	// Connection state
@@ -94,7 +95,8 @@ type Config struct {
 	TCPTimeout  time.Duration // Timeout for TCP dial and ADWS protocol operations (default 30s)
 	UseTLS          bool                      // Use TLS (future - currently not supported by ADWS)
 	DebugXML        bool                      // Print raw SOAP XML when true (or via ADWS_DEBUG_XML=1)
-	ResolverOptions transport.ResolverOptions // DNS resolver options for DC discovery and dialling
+	ResolverOptions transport.ResolverOptions // DNS resolver options for DC discovery and PTR lookup
+	DialFunc        transport.DialFunc        // If non-nil, used for TCP connections (e.g. SOCKS5 proxy)
 }
 
 // NewWSClient creates a new ADWS client with the given configuration.
@@ -151,6 +153,7 @@ func NewWSClient(cfg Config) (*WSClient, error) {
 		dnsTimeout:     cfg.DNSTimeout,
 		tcpTimeout:     cfg.TCPTimeout,
 		resolverOpts:   cfg.ResolverOptions,
+		dialFunc:       cfg.DialFunc,
 		debugXML:       cfg.DebugXML,
 	}, nil
 }
@@ -176,7 +179,7 @@ func (c *WSClient) Connect() error {
 	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
 	defer cancel()
 
-	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
+	conn, err := transport.DialADWSWithDialer(ctx, c.properDCAddr, c.port, c.dialFunc, c.resolverOpts)
 	if err != nil {
 		return err
 	}
@@ -232,7 +235,7 @@ func (c *WSClient) GetMetadata() (*wsmex.ADWSMetadata, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
 	defer cancel()
 
-	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
+	conn, err := transport.DialADWSWithDialer(ctx, c.properDCAddr, c.port, c.dialFunc, c.resolverOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -588,7 +591,7 @@ func (c *WSClient) withEndpointWSTransferClientResult(endpoint string, fn func(t
 	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
 	defer cancel()
 
-	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
+	conn, err := transport.DialADWSWithDialer(ctx, c.properDCAddr, c.port, c.dialFunc, c.resolverOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -941,7 +944,7 @@ func (c *WSClient) withAccountManagementClient(fn func(am *wscap.WSCapClient) er
 	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
 	defer cancel()
 
-	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
+	conn, err := transport.DialADWSWithDialer(ctx, c.properDCAddr, c.port, c.dialFunc, c.resolverOpts)
 	if err != nil {
 		return err
 	}
@@ -1128,7 +1131,7 @@ func (c *WSClient) withTopologyManagementClient(fn func(tm *wscap.WSCapClient) e
 	ctx, cancel := context.WithTimeout(context.Background(), c.tcpTimeout)
 	defer cancel()
 
-	conn, err := transport.DialADWS(ctx, c.properDCAddr, c.port, c.resolverOpts)
+	conn, err := transport.DialADWSWithDialer(ctx, c.properDCAddr, c.port, c.dialFunc, c.resolverOpts)
 	if err != nil {
 		return err
 	}

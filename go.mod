@@ -2,7 +2,7 @@ module github.com/Macmod/sopa
 
 go 1.24.1
 
-require github.com/Macmod/go-adws v1.1.0
+require github.com/Macmod/go-adws v1.3.0
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
@@ -23,7 +23,7 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/oiweiwei/gokrb5.fork/v9 v9.0.6 // indirect
-	golang.org/x/net v0.49.0 // indirect
+	golang.org/x/net v0.49.0
 	golang.org/x/text v0.34.0 // indirect
 )
 

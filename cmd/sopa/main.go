@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -11,9 +12,10 @@ import (
 	"github.com/Macmod/go-adws/transport"
 	adws "github.com/Macmod/sopa"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/proxy"
 )
 
-var version = "v1.2.0"
+var version = "v1.3.0"
 
 type commonOptions struct {
 	dcAddr      string
@@ -36,6 +38,8 @@ type commonOptions struct {
 	jsonOutput  bool
 	dnsServer   string
 	dnsTCP      bool
+	noProxyDNS  bool
+	socks5Proxy string
 	dnsTimeout  time.Duration
 	tcpTimeout  time.Duration
 }
@@ -97,11 +101,13 @@ func newRootCmd() *cobra.Command {
 	pf.BoolVarP(&common.kerberos, "kerberos", "k", false, "Force Kerberos authentication")
 	pf.StringVarP(&common.domain, "domain", "d", "", "Domain name (required)")
 	pf.StringVarP(&common.baseDN, "basedn", "b", "", "Base DN (default: derived from --domain)")
-	pf.BoolVarP(&common.debugXML, "debug-xml", "x", false, "Print raw SOAP XML requests and responses")
+	pf.BoolVarP(&common.debugXML, "debug-xml", "X", false, "Print raw SOAP XML requests and responses")
 	pf.BoolVarP(&common.noColor, "no-color", "N", false, "Disable colored output")
 	pf.BoolVarP(&common.jsonOutput, "json", "j", false, "Output as NDJSON (one JSON object per line; suppresses decorative messages)")
 	pf.StringVar(&common.dnsServer, "dns", "", "Custom DNS server for DC discovery and dialling (host or host:port)")
 	pf.BoolVar(&common.dnsTCP, "dns-tcp", false, "Force DNS queries over TCP")
+	pf.StringVarP(&common.socks5Proxy, "socks5", "x", "", "SOCKS5 proxy address (host:port) for all TCP connections")
+	pf.BoolVar(&common.noProxyDNS, "no-proxy-dns", false, "Do not route DNS queries through the SOCKS5 proxy")
 	pf.DurationVar(&common.dnsTimeout, "dns-timeout", 0, "Timeout for DNS operations - DC discovery and PTR lookup (default 10s)")
 	pf.DurationVar(&common.tcpTimeout, "tcp-timeout", 0, "Timeout for TCP dial and ADWS protocol operations (default 30s)")
 
@@ -166,6 +172,24 @@ func normalizeCommonOptions(common *commonOptions) error {
 }
 
 func newClient(common commonOptions) (*adws.WSClient, error) {
+	var dialFn transport.DialFunc
+	if common.socks5Proxy != "" {
+		d, err := proxy.SOCKS5("tcp", common.socks5Proxy, nil, proxy.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("socks5 proxy: %w", err)
+		}
+		dc := d.(proxy.ContextDialer)
+		dialFn = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dc.DialContext(ctx, network, address)
+		}
+	}
+
+	proxyDNS := dialFn != nil && !common.noProxyDNS
+	var dnsDialFn transport.DialFunc
+	if proxyDNS {
+		dnsDialFn = dialFn
+	}
+
 	client, err := adws.NewWSClient(adws.Config{
 		DCAddr:      strings.TrimSpace(common.dcAddr),
 		Port:        common.port,
@@ -184,9 +208,11 @@ func newClient(common commonOptions) (*adws.WSClient, error) {
 		DNSTimeout:  common.dnsTimeout,
 		TCPTimeout:  common.tcpTimeout,
 		DebugXML:    common.debugXML,
+		DialFunc:    dialFn,
 		ResolverOptions: transport.ResolverOptions{
 			NameServer: common.dnsServer,
-			UseTCP:     common.dnsTCP,
+			UseTCP:     common.dnsTCP || proxyDNS,
+			DialFunc:   dnsDialFn,
 		},
 	})
 	if err != nil {
